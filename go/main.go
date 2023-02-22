@@ -918,7 +918,9 @@ func postLendingsHandler(c echo.Context) error {
 
 	for i, bookID := range req.BookIDs {
 		// 蔵書の存在確認
-		book, err := booksCache.Get(c.Request().Context(), bookID)
+		var book Book
+		err := tx.Get(&book, "SELECT * FROM book WHERE id = ?", bookID)
+		// book, err := booksCache.Get(c.Request().Context(), bookID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -929,7 +931,8 @@ func postLendingsHandler(c echo.Context) error {
 		}
 
 		// 貸し出し中かどうか確認
-		_, err = lendingCache.Get(c.Request().Context(), bookID)
+		err = tx.Get(&Lending{}, "SELECT * FROM lending WHERE book_id = ?", bookID)
+		// _, err = lendingCache.Get(c.Request().Context(), bookID)
 		if err == nil {
 			return echo.NewHTTPError(http.StatusConflict, "this book is already lent")
 		} else if !errors.Is(err, sql.ErrNoRows) {
@@ -959,6 +962,9 @@ func postLendingsHandler(c echo.Context) error {
 	}
 
 	_ = tx.Commit()
+	for _, r := range res {
+		lendingCache.Forget(r.BookID)
+	}
 
 	return c.JSON(http.StatusCreated, res)
 }
@@ -1092,6 +1098,9 @@ func returnLendingsHandler(c echo.Context) error {
 	}
 
 	_ = tx.Commit()
+	for _, bookID := range req.BookIDs {
+		lendingCache.Forget(bookID)
+	}
 
 	return c.NoContent(http.StatusNoContent)
 }
