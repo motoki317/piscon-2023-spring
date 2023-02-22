@@ -713,7 +713,6 @@ func getBooksHandler(c echo.Context) error {
 		args = append(args, "%"+author+"%")
 	}
 	query = strings.TrimSuffix(query, "AND ")
-	query += " LEFT JOIN `lending` ON lending.book_id ON book.id"
 
 	var total int
 	err = tx.GetContext(c.Request().Context(), &total, query, args...)
