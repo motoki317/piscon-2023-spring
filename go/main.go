@@ -23,6 +23,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/oklog/ulid/v2"
+	"github.com/samber/lo"
 )
 
 func main() {
@@ -698,17 +699,23 @@ func getBooksHandler(c echo.Context) error {
 		Books: make([]GetBookResponse, len(books)),
 		Total: total,
 	}
+	bookIDs := lo.Map(books, func(b Book, idx int) string { return b.ID })
+	query, args, err = sqlx.In("SELECT `book_id` FROM `lending` WHERE `book_id` IN (?)", bookIDs)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	var lendings []string
+	if err := tx.GetContext(c.Request().Context(), &lendings, query, args); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	lendingsMap := make(map[string]bool, len(lendings))
+	for _, l := range lendings {
+		lendingsMap[l] = true
+	}
+
 	for i, book := range books {
 		res.Books[i].Book = book
-
-		err = tx.GetContext(c.Request().Context(), &Lending{}, "SELECT * FROM `lending` WHERE `book_id` = ?", book.ID)
-		if err == nil {
-			res.Books[i].Lending = true
-		} else if errors.Is(err, sql.ErrNoRows) {
-			res.Books[i].Lending = false
-		} else {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
+		res.Books[i].Lending = lendingsMap[book.ID]
 	}
 
 	_ = tx.Commit()
