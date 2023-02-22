@@ -702,10 +702,12 @@ func getBooksHandler(c echo.Context) error {
 	bookIDs := lo.Map(books, func(b Book, idx int) string { return b.ID })
 	query, args, err = sqlx.In("SELECT `book_id` FROM `lending` WHERE `book_id` IN (?)", bookIDs)
 	if err != nil {
+		fmt.Println(err.Error())
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	var lendings []string
 	if err := tx.GetContext(c.Request().Context(), &lendings, query, args); err != nil {
+		fmt.Println(err.Error())
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	lendingsMap := make(map[string]bool, len(lendings))
