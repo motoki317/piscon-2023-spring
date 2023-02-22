@@ -31,7 +31,7 @@ func main() {
 	user := getEnvOrDefault("DB_USER", "isucon")
 	pass := getEnvOrDefault("DB_PASS", "isucon")
 	name := getEnvOrDefault("DB_NAME", "isulibrary")
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&loc=Asia%%2FTokyo", user, pass, host, port, name)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&loc=Asia%%2FTokyo&interpolateParams=true", user, pass, host, port, name)
 
 	var err error
 	db, err = sqlx.Open("mysql", dsn)
