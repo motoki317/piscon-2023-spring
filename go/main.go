@@ -56,12 +56,12 @@ func main() {
 
 	booksCache = sc.NewMust(func(ctx context.Context, id string) (*Book, error) {
 		var book Book
-		err := db.GetContext(ctx, &book, "SELECT * FROM book WHERE id = ?", id)
+		err := db.GetContext(context.TODO(), &book, "SELECT * FROM book WHERE id = ?", id)
 		return &book, err
 	}, 24*time.Hour, 24*time.Hour)
 	lendingCache = sc.NewMust(func(ctx context.Context, id string) (*Lending, error) {
 		var lending Lending
-		err := db.GetContext(ctx, &lending, "SELECT * FROM lending WHERE book_id = ?", id)
+		err := db.GetContext(context.TODO(), &lending, "SELECT * FROM lending WHERE book_id = ?", id)
 		return &lending, err
 	}, 24*time.Hour, 24*time.Hour)
 
@@ -929,7 +929,8 @@ func postLendingsHandler(c echo.Context) error {
 		}
 
 		// 貸し出し中かどうか確認
-		_, err = lendingCache.Get(c.Request().Context(), bookID)
+		err = tx.Get(&Lending{}, "SELECT * FROM lending WHERE book_id = ?", bookID)
+		// _, err = lendingCache.Get(c.Request().Context(), bookID)
 		if err == nil {
 			return echo.NewHTTPError(http.StatusConflict, "this book is already lent")
 		} else if !errors.Is(err, sql.ErrNoRows) {
@@ -959,6 +960,9 @@ func postLendingsHandler(c echo.Context) error {
 	}
 
 	_ = tx.Commit()
+	for _, r := range res {
+		lendingCache.Forget(r.BookID)
+	}
 
 	return c.JSON(http.StatusCreated, res)
 }
@@ -1087,11 +1091,13 @@ func returnLendingsHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 		if rows > 0 {
-			lendingCache.Forget(bookID)
 		}
 	}
 
 	_ = tx.Commit()
+	for _, bookID := range req.BookIDs {
+		lendingCache.Forget(bookID)
+	}
 
 	return c.NoContent(http.StatusNoContent)
 }
