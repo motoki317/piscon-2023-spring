@@ -270,13 +270,13 @@ func initializeHandler(c echo.Context) error {
 	cmd.Env = os.Environ()
 	err := cmd.Run()
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	_, err = db.ExecContext(c.Request().Context(), "INSERT INTO `key` (`key`) VALUES (?)", req.Key)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -319,7 +319,7 @@ func postMemberHandler(c echo.Context) error {
 
 	tx, err := db.BeginTxx(c.Request().Context(), nil)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer func() {
@@ -330,14 +330,14 @@ func postMemberHandler(c echo.Context) error {
 		"INSERT INTO `member` (`id`, `name`, `address`, `phone_number`, `banned`, `created_at`) VALUES (?, ?, ?, ?, false, ?)",
 		id, req.Name, req.Address, req.PhoneNumber, time.Now())
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	var res Member
 	err = tx.GetContext(c.Request().Context(), &res, "SELECT * FROM `member` WHERE `id` = ?", id)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -375,7 +375,7 @@ func getMembersHandler(c echo.Context) error {
 
 	tx, err := db.BeginTxx(c.Request().Context(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer func() {
@@ -394,7 +394,7 @@ func getMembersHandler(c echo.Context) error {
 	members := []Member{}
 	err = tx.SelectContext(c.Request().Context(), &members, query, memberPageLimit, (page-1)*memberPageLimit)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if len(members) == 0 {
@@ -404,7 +404,7 @@ func getMembersHandler(c echo.Context) error {
 	var total int
 	err = tx.GetContext(c.Request().Context(), &total, "SELECT COUNT(*) FROM `member`")
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -441,7 +441,7 @@ func getMemberHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
 
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -471,7 +471,7 @@ func patchMemberHandler(c echo.Context) error {
 
 	tx, err := db.BeginTxx(c.Request().Context(), nil)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer func() {
@@ -485,7 +485,7 @@ func patchMemberHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
 
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -509,7 +509,7 @@ func patchMemberHandler(c echo.Context) error {
 
 	_, err = tx.ExecContext(c.Request().Context(), query, params...)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -527,7 +527,7 @@ func banMemberHandler(c echo.Context) error {
 
 	tx, err := db.BeginTxx(c.Request().Context(), nil)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer func() {
@@ -541,13 +541,13 @@ func banMemberHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
 
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	_, err = tx.ExecContext(c.Request().Context(), "UPDATE `member` SET `banned` = true WHERE `id` = ?", id)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -570,7 +570,7 @@ func getMemberQRCodeHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
 
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -579,7 +579,7 @@ func getMemberQRCodeHandler(c echo.Context) error {
 
 	qrCode, err := generateQRCode(id)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -610,7 +610,7 @@ func postBooksHandler(c echo.Context) error {
 
 	tx, err := db.BeginTxx(c.Request().Context(), nil)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer func() {
@@ -631,14 +631,14 @@ func postBooksHandler(c echo.Context) error {
 			"INSERT INTO `book` (`id`, `title`, `author`, `genre`, `created_at`) VALUES (?, ?, ?, ?, ?)",
 			id, req.Title, req.Author, req.Genre, createdAt)
 		if err != nil {
-			log.Println(err.Error())
+			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
 		var record Book
 		err = tx.GetContext(c.Request().Context(), &record, "SELECT * FROM `book` WHERE `id` = ?", id)
 		if err != nil {
-			log.Println(err.Error())
+			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
@@ -691,7 +691,7 @@ func getBooksHandler(c echo.Context) error {
 
 	tx, err := db.BeginTxx(c.Request().Context(), nil)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer func() {
@@ -731,7 +731,7 @@ func getBooksHandler(c echo.Context) error {
 	var books []Book
 	err = tx.SelectContext(c.Request().Context(), &books, query, args...)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if len(books) == 0 {
@@ -745,12 +745,12 @@ func getBooksHandler(c echo.Context) error {
 	bookIDs := lo.Map(books, func(b Book, idx int) string { return b.ID })
 	query, args, err = sqlx.In("SELECT `book_id` FROM `lending` WHERE `book_id` IN (?)", bookIDs)
 	if err != nil {
-		fmt.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	var lendings []string
 	if err := tx.GetContext(c.Request().Context(), &lendings, query, args...); err != nil {
-		fmt.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	lendingsMap := make(map[string]bool, len(lendings))
@@ -793,7 +793,7 @@ func getBookHandler(c echo.Context) error {
 
 	tx, err := db.BeginTxx(c.Request().Context(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer func() {
@@ -806,7 +806,7 @@ func getBookHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
 
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -819,7 +819,7 @@ func getBookHandler(c echo.Context) error {
 	} else if errors.Is(err, sql.ErrNoRows) {
 		res.Lending = false
 	} else {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -842,7 +842,7 @@ func getBookQRCodeHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
 
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -851,7 +851,7 @@ func getBookQRCodeHandler(c echo.Context) error {
 
 	qrCode, err := generateQRCode(id)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -893,7 +893,7 @@ func postLendingsHandler(c echo.Context) error {
 
 	tx, err := db.BeginTxx(c.Request().Context(), nil)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer func() {
@@ -908,7 +908,7 @@ func postLendingsHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
 
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -924,7 +924,7 @@ func postLendingsHandler(c echo.Context) error {
 				return echo.NewHTTPError(http.StatusNotFound, err.Error())
 			}
 
-			log.Println(err.Error())
+			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
@@ -933,7 +933,7 @@ func postLendingsHandler(c echo.Context) error {
 		if err == nil {
 			return echo.NewHTTPError(http.StatusConflict, "this book is already lent")
 		} else if !errors.Is(err, sql.ErrNoRows) {
-			log.Println(err.Error())
+			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
@@ -944,13 +944,13 @@ func postLendingsHandler(c echo.Context) error {
 			"INSERT INTO `lending` (`id`, `book_id`, `member_id`, `due`, `created_at`) VALUES (?, ?, ?, ?, ?)",
 			id, bookID, req.MemberID, due, lendingTime)
 		if err != nil {
-			log.Println(err.Error())
+			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
 		err = tx.GetContext(c.Request().Context(), &res[i], "SELECT * FROM `lending` WHERE `id` = ?", id)
 		if err != nil {
-			log.Println(err.Error())
+			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
@@ -977,7 +977,7 @@ func getLendingsHandler(c echo.Context) error {
 
 	tx, err := db.BeginTxx(c.Request().Context(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer func() {
@@ -994,7 +994,7 @@ func getLendingsHandler(c echo.Context) error {
 	var lendings []Lending
 	err = tx.SelectContext(c.Request().Context(), &lendings, query, args...)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -1005,14 +1005,14 @@ func getLendingsHandler(c echo.Context) error {
 		var member Member
 		err = tx.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ?", lending.MemberID)
 		if err != nil {
-			log.Println(err.Error())
+			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 		res[i].MemberName = member.Name
 
 		book, err := booksCache.Get(c.Request().Context(), lending.BookID)
 		if err != nil {
-			log.Println(err.Error())
+			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 		res[i].BookTitle = book.Title
@@ -1043,7 +1043,7 @@ func returnLendingsHandler(c echo.Context) error {
 
 	tx, err := db.BeginTxx(c.Request().Context(), nil)
 	if err != nil {
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	defer func() {
@@ -1057,7 +1057,7 @@ func returnLendingsHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
 		}
 
-		log.Println(err.Error())
+		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
@@ -1071,19 +1071,19 @@ func returnLendingsHandler(c echo.Context) error {
 				return echo.NewHTTPError(http.StatusNotFound, err.Error())
 			}
 
-			log.Println(err.Error())
+			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
 		res, err := tx.ExecContext(c.Request().Context(),
 			"DELETE FROM `lending` WHERE `member_id` =? AND `book_id` =?", req.MemberID, bookID)
 		if err != nil {
-			log.Println(err.Error())
+			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 		rows, err := res.RowsAffected()
 		if err != nil {
-			log.Println(err.Error())
+			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 		if rows > 0 {
