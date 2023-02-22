@@ -749,7 +749,7 @@ func getBooksHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	var lendings []string
-	if err := tx.GetContext(c.Request().Context(), &lendings, query, args...); err != nil {
+	if err := tx.SelectContext(c.Request().Context(), &lendings, query, args...); err != nil {
 		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
