@@ -6,6 +6,7 @@ require (
 	github.com/go-sql-driver/mysql v1.7.0
 	github.com/jmoiron/sqlx v1.3.5
 	github.com/labstack/echo/v4 v4.10.2
+	github.com/motoki317/sc v1.5.0
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/samber/lo v1.37.0
 )

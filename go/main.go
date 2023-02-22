@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -22,8 +23,14 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/motoki317/sc"
 	"github.com/oklog/ulid/v2"
 	"github.com/samber/lo"
+)
+
+var (
+	booksCache   *sc.Cache[string, *Book]
+	lendingCache *sc.Cache[string, *Lending]
 )
 
 func main() {
@@ -46,6 +53,17 @@ func main() {
 	if err != nil {
 		log.Panic(err)
 	}
+
+	booksCache = sc.NewMust(func(ctx context.Context, id string) (*Book, error) {
+		var book Book
+		err := db.GetContext(ctx, &book, "SELECT * FROM book WHERE id = ?", id)
+		return &book, err
+	}, 24*time.Hour, 24*time.Hour)
+	lendingCache = sc.NewMust(func(ctx context.Context, id string) (*Lending, error) {
+		var lending Lending
+		err := db.GetContext(ctx, &lending, "SELECT * FROM lending WHERE book_id = ?", id)
+		return &lending, err
+	}, 24*time.Hour, 24*time.Hour)
 
 	block, err = aes.NewCipher([]byte(key))
 	if err != nil {
@@ -264,6 +282,9 @@ func initializeHandler(c echo.Context) error {
 	if err != nil {
 		log.Panic(err.Error())
 	}
+
+	booksCache.Purge()
+	lendingCache.Purge()
 
 	return c.JSON(http.StatusOK, InitializeHandlerResponse{
 		Language: "Go",
@@ -671,6 +692,7 @@ func getBooksHandler(c echo.Context) error {
 		args = append(args, "%"+author+"%")
 	}
 	query = strings.TrimSuffix(query, "AND ")
+	query += " LEFT JOIN `lending` ON lending.book_id ON book.id"
 
 	var total int
 	err = tx.GetContext(c.Request().Context(), &total, query, args...)
@@ -756,8 +778,7 @@ func getBookHandler(c echo.Context) error {
 		_ = tx.Rollback()
 	}()
 
-	book := Book{}
-	err = tx.GetContext(c.Request().Context(), &book, "SELECT * FROM `book` WHERE `id` = ?", id)
+	book, err := booksCache.Get(c.Request().Context(), id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -767,9 +788,9 @@ func getBookHandler(c echo.Context) error {
 	}
 
 	res := GetBookResponse{
-		Book: book,
+		Book: *book,
 	}
-	err = tx.GetContext(c.Request().Context(), &Lending{}, "SELECT * FROM `lending` WHERE `book_id` = ?", id)
+	_, err = lendingCache.Get(c.Request().Context(), id)
 	if err == nil {
 		res.Lending = true
 	} else if errors.Is(err, sql.ErrNoRows) {
@@ -791,7 +812,7 @@ func getBookQRCodeHandler(c echo.Context) error {
 	}
 
 	// 蔵書の存在確認
-	err := db.GetContext(c.Request().Context(), &Book{}, "SELECT * FROM `book` WHERE `id` = ?", id)
+	_, err := booksCache.Get(c.Request().Context(), id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -869,8 +890,7 @@ func postLendingsHandler(c echo.Context) error {
 
 	for i, bookID := range req.BookIDs {
 		// 蔵書の存在確認
-		var book Book
-		err = tx.GetContext(c.Request().Context(), &book, "SELECT * FROM `book` WHERE `id` = ?", bookID)
+		book, err := booksCache.Get(c.Request().Context(), bookID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -880,8 +900,7 @@ func postLendingsHandler(c echo.Context) error {
 		}
 
 		// 貸し出し中かどうか確認
-		var lending Lending
-		err = tx.GetContext(c.Request().Context(), &lending, "SELECT * FROM `lending` WHERE `book_id` = ?", bookID)
+		_, err = lendingCache.Get(c.Request().Context(), bookID)
 		if err == nil {
 			return echo.NewHTTPError(http.StatusConflict, "this book is already lent")
 		} else if !errors.Is(err, sql.ErrNoRows) {
@@ -898,7 +917,7 @@ func postLendingsHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
-		err := tx.GetContext(c.Request().Context(), &res[i], "SELECT * FROM `lending` WHERE `id` = ?", id)
+		err = tx.GetContext(c.Request().Context(), &res[i], "SELECT * FROM `lending` WHERE `id` = ?", id)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
@@ -956,8 +975,7 @@ func getLendingsHandler(c echo.Context) error {
 		}
 		res[i].MemberName = member.Name
 
-		var book Book
-		err = tx.GetContext(c.Request().Context(), &book, "SELECT * FROM `book` WHERE `id` = ?", lending.BookID)
+		book, err := booksCache.Get(c.Request().Context(), lending.BookID)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
@@ -1018,10 +1036,17 @@ func returnLendingsHandler(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 
-		_, err = tx.ExecContext(c.Request().Context(),
+		res, err := tx.ExecContext(c.Request().Context(),
 			"DELETE FROM `lending` WHERE `member_id` =? AND `book_id` =?", req.MemberID, bookID)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+		rows, err := res.RowsAffected()
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+		if rows > 0 {
+			lendingCache.Forget(bookID)
 		}
 	}
 
