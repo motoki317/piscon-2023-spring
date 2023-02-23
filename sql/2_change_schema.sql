@@ -3,6 +3,7 @@ ALTER TABLE `book`
     ADD COLUMN `member_id` varchar(255) NULL,
     ADD COLUMN `due` datetime(6) NULL,
     ADD COLUMN `lent_at` datetime(6) NULL;
+ALTER TABLE `book` ADD INDEX `idx_book_due` (`due`);
 
 INSERT INTO `book` (`id`, `lending_id`, `member_id`, `due`, `lent_at`)
     SELECT `book_id`, `id`, `member_id`, `due`, `created_at` FROM `lending` AS l

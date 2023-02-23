@@ -56,12 +56,12 @@ func main() {
 
 	bookInfoCache = sc.NewMust(func(ctx context.Context, id string) (*Book, error) {
 		var book Book
-		err := db.GetContext(ctx, &book, "SELECT * FROM book WHERE id = ?", id)
+		err := db.GetContext(ctx, &book, "SELECT * FROM `book` WHERE `id` = ?", id)
 		return &book, err
 	}, 24*time.Hour, 24*time.Hour)
 	booksCache = sc.NewMust(func(ctx context.Context, id string) (*Book, error) {
 		var book Book
-		err := db.GetContext(ctx, &book, "SELECT * FROM book WHERE id = ?", id)
+		err := db.GetContext(ctx, &book, "SELECT * FROM `book` WHERE `id` = ?", id)
 		return &book, err
 	}, 24*time.Hour, 24*time.Hour)
 
@@ -345,7 +345,7 @@ func postMemberHandler(c echo.Context) error {
 	}()
 
 	_, err = tx.ExecContext(c.Request().Context(),
-		"INSERT INTO `member` (`id`, `name`, `address`, `phone_number`, `banned`, `created_at`) VALUES (?, ?, ?, ?, false, ?)",
+		"INSERT INTO `member` (`id`, `name`, `address`, `phone_number`, `banned`, `created_at`) VALUES (?, ?, ?, ?, FALSE, ?)",
 		id, req.Name, req.Address, req.PhoneNumber, time.Now())
 	if err != nil {
 		c.Logger().Error(err)
@@ -400,7 +400,7 @@ func getMembersHandler(c echo.Context) error {
 		_ = tx.Rollback()
 	}()
 
-	query := "SELECT * FROM `member` WHERE `banned` = false "
+	query := "SELECT * FROM `member` WHERE `banned` = FALSE "
 	switch order {
 	case "name_asc":
 		query += "ORDER BY `name` ASC "
@@ -453,7 +453,7 @@ func getMemberHandler(c echo.Context) error {
 	}
 
 	member := Member{}
-	err := db.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = false", id)
+	err := db.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -497,7 +497,7 @@ func patchMemberHandler(c echo.Context) error {
 	}()
 
 	// 会員の存在を確認
-	err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = false", id)
+	err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -553,7 +553,7 @@ func banMemberHandler(c echo.Context) error {
 	}()
 
 	// 会員の存在を確認
-	err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = false", id)
+	err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -563,7 +563,7 @@ func banMemberHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	_, err = tx.ExecContext(c.Request().Context(), "UPDATE `member` SET `banned` = true WHERE `id` = ?", id)
+	_, err = tx.ExecContext(c.Request().Context(), "UPDATE `member` SET `banned` = TRUE WHERE `id` = ?", id)
 	if err != nil {
 		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -582,7 +582,7 @@ func getMemberQRCodeHandler(c echo.Context) error {
 	}
 
 	// 会員の存在確認
-	err := db.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = false", id)
+	err := db.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -910,7 +910,7 @@ func postLendingsHandler(c echo.Context) error {
 	lendingTime := time.Now()
 	due := lendingTime.Add(LendingPeriod * time.Millisecond)
 
-	query, args, err := sqlx.In("SELECT COUNT(*) FROM book WHERE id IN (?) AND lending_id IS NULL FOR UPDATE", req.BookIDs)
+	query, args, err := sqlx.In("SELECT COUNT(*) FROM `book` WHERE `id` IN (?) AND `lending_id` IS NULL FOR UPDATE", req.BookIDs)
 	if err != nil {
 		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -994,10 +994,10 @@ func getLendingsHandler(c echo.Context) error {
 	query := "SELECT * FROM `book`"
 	args := []any{}
 	if overDue == "true" {
-		query += " WHERE `due` > ? AND `lending_id` IS NOT NULL"
+		query += " WHERE `due` > ? AND `due` IS NOT NULL"
 		args = append(args, time.Now())
 	} else {
-		query += " WHERE `lending_id` IS NOT NULL"
+		query += " WHERE `due` IS NOT NULL"
 	}
 
 	var books []Book
