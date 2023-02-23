@@ -910,7 +910,7 @@ func postLendingsHandler(c echo.Context) error {
 	lendingTime := time.Now()
 	due := lendingTime.Add(LendingPeriod * time.Millisecond)
 
-	query, args, err := sqlx.In("SELECT COUNT(*) FROM book WHERE id IN (?) AND lending_id IS NOT NULL", req.BookIDs)
+	query, args, err := sqlx.In("SELECT COUNT(*) FROM book WHERE id IN (?) AND lending_id IS NOT NULL FOR UPDATE", req.BookIDs)
 	if err != nil {
 		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -922,6 +922,7 @@ func postLendingsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if count != len(req.BookIDs) {
+		c.Logger().Errorf("count: %v, len(req.BookIDs): %v", count, len(req.BookIDs))
 		return echo.NewHTTPError(http.StatusConflict, "this book is already lent")
 	}
 
