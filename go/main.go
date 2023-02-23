@@ -926,15 +926,18 @@ func postLendingsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusConflict, "this book is already lent")
 	}
 
-	books := lo.Map(req.BookIDs, func(id string, i int) *Book {
-		return &Book{
-			ID:        id,
-			LendingID: sql.NullString{String: generateID(), Valid: true},
-			MemberID:  sql.NullString{String: req.MemberID, Valid: true},
-			Due:       sql.NullTime{Time: due, Valid: true},
-			LentAt:    sql.NullTime{Time: lendingTime, Valid: true},
+	books := make([]*Book, len(req.BookIDs))
+	for i := range books {
+		books[i], err = bookInfoCache.Get(c.Request().Context(), req.BookIDs[i])
+		if err != nil {
+			c.Logger().Error(err)
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
-	})
+		books[i].LendingID = sql.NullString{String: generateID(), Valid: true}
+		books[i].MemberID = sql.NullString{String: req.MemberID, Valid: true}
+		books[i].Due = sql.NullTime{Time: due, Valid: true}
+		books[i].LentAt = sql.NullTime{Time: lendingTime, Valid: true}
+	}
 	_, err = tx.NamedExecContext(
 		c.Request().Context(),
 		"INSERT INTO book (id, title, author, genre, created_at, lending_id, member_id, due, lent_at) VALUES (:id, :title, :author, :genre, :created_at, :lending_id, :member_id, :due, :lent_at) ON DUPLICATE KEY UPDATE lending_id = VALUES(lending_id), member_id = VALUES(member_id), due = VALUES(due), lent_at = VALUES(lent_at)",
@@ -945,15 +948,6 @@ func postLendingsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	titles := make([]string, len(req.BookIDs))
-	for i := range titles {
-		book, err := bookInfoCache.Get(c.Request().Context(), req.BookIDs[i])
-		if err != nil {
-			c.Logger().Error(err)
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
-		titles[i] = book.Title
-	}
 	res := lo.Map(req.BookIDs, func(id string, i int) PostLendingsResponse {
 		return PostLendingsResponse{
 			Lending: Lending{
@@ -964,7 +958,7 @@ func postLendingsHandler(c echo.Context) error {
 				CreatedAt: books[i].LentAt.Time,
 			},
 			MemberName: member.Name,
-			BookTitle:  titles[i],
+			BookTitle:  books[i].Title,
 		}
 	})
 
