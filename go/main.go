@@ -937,7 +937,7 @@ func postLendingsHandler(c echo.Context) error {
 	})
 	_, err = tx.NamedExecContext(
 		c.Request().Context(),
-		"INSERT INTO book (id, lending_id, member_id, due, lent_at) VALUES (:id, :lending_id, :member_id, :due, :lent_at) ON DUPLICATE KEY UPDATE lending_id = VALUES(lending_id), member_id = VALUES(member_id), due = VALUES(due), lent_at = VALUES(lent_at)",
+		"INSERT INTO book (id, title, author, genre, created_at, lending_id, member_id, due, lent_at) VALUES (:id, :lending_id, :member_id, :due, :lent_at) ON DUPLICATE KEY UPDATE lending_id = VALUES(lending_id), member_id = VALUES(member_id), due = VALUES(due), lent_at = VALUES(lent_at)",
 		books,
 	)
 	if err != nil {
