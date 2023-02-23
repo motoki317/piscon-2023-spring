@@ -25,10 +25,12 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/motoki317/sc"
 	"github.com/oklog/ulid/v2"
+	"github.com/samber/lo"
 )
 
 var (
-	booksCache *sc.Cache[string, *Book]
+	bookInfoCache *sc.Cache[string, *Book]
+	booksCache    *sc.Cache[string, *Book]
 )
 
 func main() {
@@ -52,6 +54,11 @@ func main() {
 		log.Panic(err)
 	}
 
+	bookInfoCache = sc.NewMust(func(ctx context.Context, id string) (*Book, error) {
+		var book Book
+		err := db.GetContext(ctx, &book, "SELECT * FROM book WHERE id = ?", id)
+		return &book, err
+	}, 24*time.Hour, 24*time.Hour)
 	booksCache = sc.NewMust(func(ctx context.Context, id string) (*Book, error) {
 		var book Book
 		err := db.GetContext(ctx, &book, "SELECT * FROM book WHERE id = ?", id)
@@ -284,6 +291,20 @@ func initializeHandler(c echo.Context) error {
 	}
 
 	booksCache.Purge()
+	bookInfoCache.Purge()
+
+	// warm cache
+	var ids []string
+	err = db.SelectContext(c.Request().Context(), &ids, "SELECT id FROM book")
+	if err != nil {
+		log.Panic(err.Error())
+	}
+	for _, id := range ids {
+		_, err = bookInfoCache.Get(c.Request().Context(), id)
+		if err != nil {
+			log.Panic(err.Error())
+		}
+	}
 
 	return c.JSON(http.StatusOK, InitializeHandlerResponse{
 		Language: "Go",
@@ -888,49 +909,63 @@ func postLendingsHandler(c echo.Context) error {
 
 	lendingTime := time.Now()
 	due := lendingTime.Add(LendingPeriod * time.Millisecond)
-	res := make([]PostLendingsResponse, len(req.BookIDs))
 
-	for i, bookID := range req.BookIDs {
-		// 蔵書の存在確認
-		var book Book
-		err := tx.Get(&book, "SELECT * FROM book WHERE id = ? FOR UPDATE", bookID)
+	query, args, err := sqlx.In("SELECT COUNT(*) FROM book WHERE id IN (?) AND lending_id IS NOT NULL", req.BookIDs)
+	if err != nil {
+		c.Logger().Error(err)
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	var count int
+	err = tx.GetContext(c.Request().Context(), &count, query, args...)
+	if err != nil {
+		c.Logger().Error(err)
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if count != len(req.BookIDs) {
+		return echo.NewHTTPError(http.StatusConflict, "this book is already lent")
+	}
+
+	books := lo.Map(req.BookIDs, func(id string, i int) *Book {
+		return &Book{
+			ID:        id,
+			LendingID: sql.NullString{String: generateID(), Valid: true},
+			MemberID:  sql.NullString{String: req.MemberID, Valid: true},
+			Due:       sql.NullTime{Time: due, Valid: true},
+			LentAt:    sql.NullTime{Time: lendingTime, Valid: true},
+		}
+	})
+	_, err = tx.NamedExecContext(
+		c.Request().Context(),
+		"INSERT INTO book (id, lending_id, member_id, due, lent_at) VALUES (:id, :lending_id, :member_id, :due, :lent_at) ON DUPLICATE KEY UPDATE lending_id = VALUES(lending_id), member_id = VALUES(member_id), due = VALUES(due), lent_at = VALUES(lent_at)",
+		books,
+	)
+	if err != nil {
+		c.Logger().Error(err)
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	titles := make([]string, len(req.BookIDs))
+	for i := range titles {
+		book, err := bookInfoCache.Get(c.Request().Context(), req.BookIDs[i])
 		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return echo.NewHTTPError(http.StatusNotFound, err.Error())
-			}
-
 			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
-
-		// 貸し出し中かどうか確認
-		if book.LendingID.Valid {
-			return echo.NewHTTPError(http.StatusConflict, "this book is already lent")
-		}
-
-		id := generateID()
-
-		// 貸し出し
-		_, err = tx.ExecContext(c.Request().Context(),
-			"UPDATE `book` SET `lending_id` = ?, `member_id` = ?, `due` = ?, `lent_at` = ? WHERE `id` = ?",
-			id, req.MemberID, due, lendingTime, bookID)
-		if err != nil {
-			c.Logger().Error(err)
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
-
-		res[i] = PostLendingsResponse{
+		titles[i] = book.Title
+	}
+	res := lo.Map(req.BookIDs, func(id string, i int) PostLendingsResponse {
+		return PostLendingsResponse{
 			Lending: Lending{
-				ID:        id,
-				MemberID:  req.MemberID,
-				BookID:    bookID,
-				Due:       due,
-				CreatedAt: lendingTime,
+				ID:        books[i].LendingID.String,
+				MemberID:  books[i].MemberID.String,
+				BookID:    id,
+				Due:       books[i].Due.Time,
+				CreatedAt: books[i].LentAt.Time,
 			},
 			MemberName: member.Name,
-			BookTitle:  book.Title,
+			BookTitle:  titles[i],
 		}
-	}
+	})
 
 	_ = tx.Commit()
 	for _, r := range res {
@@ -1040,27 +1075,27 @@ func returnLendingsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	for _, bookID := range req.BookIDs {
-		// 貸し出しの存在確認
-		book, err := booksCache.Get(c.Request().Context(), bookID)
-		if !book.LendingID.Valid || book.MemberID.String != req.MemberID {
-			return echo.NewHTTPError(http.StatusNotFound, "not found")
-		}
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return echo.NewHTTPError(http.StatusNotFound, err.Error())
-			}
+	// 貸し出しの存在確認
+	query, args, err := sqlx.In("SELECT COUNT(*) FROM book WHERE id IN (?) AND member_id = ?", req.BookIDs, req.MemberID)
+	if err != nil {
+		c.Logger().Error(err)
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	var count int
+	err = tx.GetContext(c.Request().Context(), &count, query, args...)
+	if err != nil {
+		c.Logger().Error(err)
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if count != len(req.BookIDs) {
+		return echo.NewHTTPError(http.StatusNotFound, "not found")
+	}
 
-			c.Logger().Error(err)
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
-
-		_, err = tx.ExecContext(c.Request().Context(),
-			"UPDATE `book` SET `lending_id` = NULL, `member_id` = NULL, `due` = NULL, `lent_at` = NULL WHERE `id` = ?", bookID)
-		if err != nil {
-			c.Logger().Error(err)
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
+	query, args, err = sqlx.In("UPDATE `book` SET `lending_id` = NULL, `member_id` = NULL, `due` = NULL, `lent_at` = NULL WHERE `id` IN (?)", req.BookIDs)
+	_, err = tx.ExecContext(c.Request().Context(), query, args...)
+	if err != nil {
+		c.Logger().Error(err)
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
 	_ = tx.Commit()
