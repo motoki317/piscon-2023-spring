@@ -912,7 +912,7 @@ func postLendingsHandler(c echo.Context) error {
 
 		// 貸し出し
 		_, err = tx.ExecContext(c.Request().Context(),
-			"UPDATE `book` SET `lending_id` = ?, `member_id` = ?, `due` = ?, `created_at` = ? WHERE `id` = ?",
+			"UPDATE `book` SET `lending_id` = ?, `member_id` = ?, `due` = ?, `lent_at` = ? WHERE `id` = ?",
 			id, req.MemberID, due, lendingTime, bookID)
 		if err != nil {
 			c.Logger().Error(err)
