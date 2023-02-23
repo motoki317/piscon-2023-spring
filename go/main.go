@@ -964,8 +964,10 @@ func getLendingsHandler(c echo.Context) error {
 	query := "SELECT * FROM `book`"
 	args := []any{}
 	if overDue == "true" {
-		query += " WHERE `due` > ?"
+		query += " WHERE `due` > ? AND `lending_id` IS NOT NULL"
 		args = append(args, time.Now())
+	} else {
+		query += " WHERE `lending_id` IS NOT NULL"
 	}
 
 	var books []Book
