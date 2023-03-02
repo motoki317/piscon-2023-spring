@@ -931,7 +931,7 @@ func postLendingsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	lendingTime := time.Now().Truncate(time.Microsecond)
+	lendingTime := time.Now().Truncate(time.Microsecond).In(time.UTC)
 	due := lendingTime.Add(LendingPeriod * time.Millisecond)
 
 	query, args, err := sqlx.In("SELECT COUNT(*) FROM `book` WHERE `id` IN (?) AND `lending_id` IS NULL FOR UPDATE", req.BookIDs)
@@ -1038,8 +1038,8 @@ func getLendingsHandler(c echo.Context) error {
 			ID:        book.LendingID.String,
 			MemberID:  book.MemberID.String,
 			BookID:    book.ID,
-			Due:       book.Due.Time,
-			CreatedAt: book.LentAt.Time,
+			Due:       book.Due.Time.In(time.UTC),
+			CreatedAt: book.LentAt.Time.In(time.UTC),
 		}
 		res[i].BookTitle = book.Title
 
