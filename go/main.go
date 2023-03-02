@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
@@ -16,7 +17,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -195,8 +195,7 @@ func getEnvOrDefault(key string, defaultValue string) string {
 }
 
 var (
-	block      cipher.Block
-	qrFileLock sync.Mutex
+	block cipher.Block
 )
 
 // AES + CTRモード + base64エンコードでテキストを暗号化
@@ -223,7 +222,7 @@ func decrypt(cipherText string) (string, error) {
 	return string(decryptedText), nil
 }
 
-const qrCodeFileName = "../images/qr.png"
+// const qrCodeFileName = "../images/qr.png"
 
 // QRコードを生成
 func generateQRCode(id string) ([]byte, error) {
@@ -232,6 +231,8 @@ func generateQRCode(id string) ([]byte, error) {
 		return nil, err
 	}
 
+	var buf bytes.Buffer
+
 	/*
 		生成するQRコードの仕様
 		 - PNGフォーマット
@@ -239,20 +240,14 @@ func generateQRCode(id string) ([]byte, error) {
 		 - バージョン6 (41x41ピクセル、マージン含め49x49ピクセル)
 		 - エラー訂正レベルM (15%)
 	*/
-	err = exec.
-		Command("sh", "-c", fmt.Sprintf("echo \"%s\" | qrencode -o %s -t PNG -s 1 -v 6 --strict-version -l M", encryptedID, qrCodeFileName)).
-		Run()
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo \"%s\" | qrencode -o - -t PNG -s 1 -v 6 --strict-version -l M", encryptedID))
+	cmd.Stdout = &buf
+	err = cmd.Run()
 	if err != nil {
 		return nil, err
 	}
 
-	file, err := os.Open(qrCodeFileName)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	return io.ReadAll(file)
+	return buf.Bytes(), nil
 }
 
 /*
@@ -628,9 +623,6 @@ func getMemberQRCodeHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
-	qrFileLock.Lock()
-	defer qrFileLock.Unlock()
-
 	qrCode, err := generateQRCode(id)
 	if err != nil {
 		c.Logger().Error(err)
@@ -876,9 +868,6 @@ func getBookQRCodeHandler(c echo.Context) error {
 		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-
-	qrFileLock.Lock()
-	defer qrFileLock.Unlock()
 
 	qrCode, err := generateQRCode(id)
 	if err != nil {
