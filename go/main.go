@@ -931,7 +931,7 @@ func postLendingsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	lendingTime := time.Now()
+	lendingTime := time.Now().Truncate(time.Microsecond)
 	due := lendingTime.Add(LendingPeriod * time.Millisecond)
 
 	query, args, err := sqlx.In("SELECT COUNT(*) FROM `book` WHERE `id` IN (?) AND `lending_id` IS NULL FOR UPDATE", req.BookIDs)
