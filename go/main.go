@@ -60,7 +60,7 @@ func main() {
 
 	membersCache = sc.NewMust(func(ctx context.Context, id string) (*Member, error) {
 		var member Member
-		err := db.GetContext(ctx, &member, "SELECT * FROM `member` WHERE `id` = ? AND NOT `banned`", id)
+		err := db.GetContext(ctx, &member, "SELECT * FROM `member` WHERE `id` = ?", id)
 		return &member, err
 	}, 24*time.Hour, 24*time.Hour)
 	bookInfoCache = sc.NewMust(func(ctx context.Context, id string) (*Book, error) {
@@ -316,6 +316,10 @@ func initializeHandler(c echo.Context) error {
 		log.Panic(err.Error())
 	}
 	for _, id := range ids {
+		_, err = booksCache.Get(c.Request().Context(), id)
+		if err != nil {
+			log.Panic(err.Error())
+		}
 		_, err = bookInfoCache.Get(c.Request().Context(), id)
 		if err != nil {
 			log.Panic(err.Error())
@@ -480,6 +484,9 @@ func getMemberHandler(c echo.Context) error {
 		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	if member.Banned {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
+	}
 
 	return c.JSON(http.StatusOK, member)
 }
@@ -515,7 +522,7 @@ func patchMemberHandler(c echo.Context) error {
 	}()
 
 	// 会員の存在を確認
-	_, err = membersCache.Get(c.Request().Context(), id)
+	member, err := membersCache.Get(c.Request().Context(), id)
 	// err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -524,6 +531,9 @@ func patchMemberHandler(c echo.Context) error {
 
 		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if member.Banned {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
 	query := "UPDATE `member` SET "
@@ -604,7 +614,7 @@ func getMemberQRCodeHandler(c echo.Context) error {
 	}
 
 	// 会員の存在確認
-	_, err := membersCache.Get(c.Request().Context(), id)
+	member, err := membersCache.Get(c.Request().Context(), id)
 	// err := db.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -613,6 +623,9 @@ func getMemberQRCodeHandler(c echo.Context) error {
 
 		c.Logger().Error(err)
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if member.Banned {
+		return echo.NewHTTPError(http.StatusNotFound, err.Error())
 	}
 
 	qrFileLock.Lock()
