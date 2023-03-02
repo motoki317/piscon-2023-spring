@@ -1033,6 +1033,7 @@ func getLendingsHandler(c echo.Context) error {
 
 	res := make([]*GetLendingsResponse, len(books))
 	for i, book := range books {
+		res[i] = &GetLendingsResponse{}
 		res[i].Lending = Lending{
 			ID:        book.LendingID.String,
 			MemberID:  book.MemberID.String,
