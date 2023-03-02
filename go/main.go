@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -29,8 +30,10 @@ import (
 )
 
 var (
-	bookInfoCache *sc.Cache[string, *Book]
-	booksCache    *sc.Cache[string, *Book]
+	memberCountCache int64
+	membersCache     *sc.Cache[string, *Member]
+	bookInfoCache    *sc.Cache[string, *Book]
+	booksCache       *sc.Cache[string, *Book]
 )
 
 func main() {
@@ -54,6 +57,11 @@ func main() {
 		log.Panic(err)
 	}
 
+	membersCache = sc.NewMust(func(ctx context.Context, id string) (*Member, error) {
+		var member Member
+		err := db.GetContext(ctx, &member, "SELECT * FROM `member` WHERE `id` = ? AND NOT `banned`", id)
+		return &member, err
+	}, 24*time.Hour, 24*time.Hour)
 	bookInfoCache = sc.NewMust(func(ctx context.Context, id string) (*Book, error) {
 		var book Book
 		err := db.GetContext(ctx, &book, "SELECT * FROM `book` WHERE `id` = ?", id)
@@ -290,10 +298,17 @@ func initializeHandler(c echo.Context) error {
 		log.Panic(err.Error())
 	}
 
+	atomic.StoreInt64(&memberCountCache, 0)
+	membersCache.Purge()
 	booksCache.Purge()
 	bookInfoCache.Purge()
 
 	// warm cache
+	err = db.GetContext(c.Request().Context(), &memberCountCache, "SELECT COUNT(*) FROM `member`")
+	if err != nil {
+		log.Panic(err.Error())
+	}
+
 	var ids []string
 	err = db.SelectContext(c.Request().Context(), &ids, "SELECT id FROM book")
 	if err != nil {
@@ -360,6 +375,7 @@ func postMemberHandler(c echo.Context) error {
 	}
 
 	_ = tx.Commit()
+	atomic.AddInt64(&memberCountCache, 1)
 
 	return c.JSON(http.StatusCreated, res)
 }
@@ -419,12 +435,12 @@ func getMembersHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "no members to show in this page")
 	}
 
-	var total int
-	err = tx.GetContext(c.Request().Context(), &total, "SELECT COUNT(*) FROM `member`")
-	if err != nil {
-		c.Logger().Error(err)
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
+	total := int(atomic.LoadInt64(&memberCountCache))
+	// err = tx.GetContext(c.Request().Context(), &total, "SELECT COUNT(*) FROM `member`")
+	// if err != nil {
+	// 	c.Logger().Error(err)
+	// 	return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	// }
 
 	_ = tx.Commit()
 
@@ -452,8 +468,9 @@ func getMemberHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "encrypted must be boolean value")
 	}
 
-	member := Member{}
-	err := db.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
+	member, err := membersCache.Get(c.Request().Context(), id)
+	// member := Member{}
+	// err := db.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -497,7 +514,8 @@ func patchMemberHandler(c echo.Context) error {
 	}()
 
 	// 会員の存在を確認
-	err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
+	_, err = membersCache.Get(c.Request().Context(), id)
+	// err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -532,6 +550,7 @@ func patchMemberHandler(c echo.Context) error {
 	}
 
 	_ = tx.Commit()
+	membersCache.Forget(id)
 
 	return c.NoContent(http.StatusNoContent)
 }
@@ -553,7 +572,8 @@ func banMemberHandler(c echo.Context) error {
 	}()
 
 	// 会員の存在を確認
-	err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
+	_, err = membersCache.Get(c.Request().Context(), id)
+	// err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -570,6 +590,7 @@ func banMemberHandler(c echo.Context) error {
 	}
 
 	_ = tx.Commit()
+	membersCache.Forget(id)
 
 	return c.NoContent(http.StatusNoContent)
 }
@@ -582,7 +603,8 @@ func getMemberQRCodeHandler(c echo.Context) error {
 	}
 
 	// 会員の存在確認
-	err := db.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
+	_, err := membersCache.Get(c.Request().Context(), id)
+	// err := db.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ? AND `banned` = FALSE", id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -896,8 +918,9 @@ func postLendingsHandler(c echo.Context) error {
 	}()
 
 	// 会員の存在確認
-	var member Member
-	err = tx.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ?", req.MemberID)
+	member, err := membersCache.Get(c.Request().Context(), req.MemberID)
+	// var member Member
+	// err = tx.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ?", req.MemberID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
@@ -1018,8 +1041,9 @@ func getLendingsHandler(c echo.Context) error {
 		}
 		res[i].BookTitle = book.Title
 
-		var member Member
-		err = tx.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ?", book.MemberID)
+		member, err := membersCache.Get(c.Request().Context(), book.MemberID.String)
+		// var member Member
+		// err = tx.GetContext(c.Request().Context(), &member, "SELECT * FROM `member` WHERE `id` = ?", book.MemberID)
 		if err != nil {
 			c.Logger().Error(err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -1060,7 +1084,8 @@ func returnLendingsHandler(c echo.Context) error {
 	}()
 
 	// 会員の存在確認
-	err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ?", req.MemberID)
+	_, err = membersCache.Get(c.Request().Context(), req.MemberID)
+	// err = tx.GetContext(c.Request().Context(), &Member{}, "SELECT * FROM `member` WHERE `id` = ?", req.MemberID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return echo.NewHTTPError(http.StatusNotFound, err.Error())
