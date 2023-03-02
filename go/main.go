@@ -1022,6 +1022,7 @@ func getLendingsHandler(c echo.Context) error {
 	} else {
 		query += " WHERE `due` IS NOT NULL"
 	}
+	query += " ORDER BY due"
 
 	var books []Book
 	err = tx.SelectContext(c.Request().Context(), &books, query, args...)
