@@ -27,6 +27,7 @@ import (
 	"github.com/motoki317/sc"
 	"github.com/oklog/ulid/v2"
 	"github.com/samber/lo"
+	"golang.org/x/exp/slices"
 )
 
 var (
@@ -1022,7 +1023,6 @@ func getLendingsHandler(c echo.Context) error {
 	} else {
 		query += " WHERE `due` IS NOT NULL"
 	}
-	query += " ORDER BY due"
 
 	var books []Book
 	err = tx.SelectContext(c.Request().Context(), &books, query, args...)
@@ -1031,7 +1031,7 @@ func getLendingsHandler(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	res := make([]GetLendingsResponse, len(books))
+	res := make([]*GetLendingsResponse, len(books))
 	for i, book := range books {
 		res[i].Lending = Lending{
 			ID:        book.LendingID.String,
@@ -1053,6 +1053,10 @@ func getLendingsHandler(c echo.Context) error {
 	}
 
 	_ = tx.Commit()
+
+	slices.SortFunc(res, func(a, b *GetLendingsResponse) bool {
+		return a.ID < b.ID
+	})
 
 	return c.JSON(http.StatusOK, res)
 }
